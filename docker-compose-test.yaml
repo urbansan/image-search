@@ -1,0 +1,54 @@
+x-environment-variables: &defaults
+  MYSQL_ROOT_PASSWORD: rootpassword
+  MYSQL_DATABASE: mydatabase
+  MYSQL_USER: myuser
+  MYSQL_PASSWORD: mypassword
+  MYSQL_HOST: mysql-image-search-test
+  MYSQL_PORT: 3306
+  REDIS_HOST: redis-image-search-test
+  REDIS_PORT: 6379
+
+services:
+  redis-test:
+    image: redis/redis-stack:latest
+    container_name: redis-image-search-test
+    ports:
+      - "6380:6379"
+
+  mysql-test:
+    image: mysql:8.0
+    container_name: mysql-image-search-test
+    environment:
+      <<: *defaults
+    ports:
+      - "3307:3306"
+
+  migrate-test:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: migrate-test
+    environment:
+      <<: *defaults
+    command: poetry run alembic upgrade head
+    restart: on-failure
+    volumes:
+      - ./:/app
+    depends_on:
+      - mysql-test
+
+  create_redis_indices:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: create_redisearch_indices
+    environment:
+      <<: *defaults
+    command: poetry run create_redisearch_indices
+    restart: on-failure
+    volumes:
+      - ./:/app
+    depends_on:
+      - redis-test
+
+

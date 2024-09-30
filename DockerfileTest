@@ -1,0 +1,7 @@
+FROM image-search:latest
+
+WORKDIR /app
+
+RUN poetry install --with dev
+
+EXPOSE 8000

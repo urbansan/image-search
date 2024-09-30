@@ -1,9 +1,22 @@
-version: '3.8'
+x-environment-variables: &defaults
+  MYSQL_ROOT_PASSWORD: rootpassword
+  MYSQL_DATABASE: mydatabase
+  MYSQL_USER: myuser
+  MYSQL_PASSWORD: mypassword
+  MYSQL_HOST: mysql-image-search
+  MYSQL_PORT: 3306
+  RABBITMQ_DEFAULT_USER: guest
+  RABBITMQ_DEFAULT_PASS: guest
+  RABBITMQ_DEFAULT_VHOST: /
+  RABBITMQ_HOST: rabbitmq-image-search
+  RABBITMQ_PORT: 5672
+  REDIS_HOST: redis-image-search
+  REDIS_PORT: 6379
 
 services:
   redis:
-    image: redis:7.0-alpine
-    container_name: redis
+    image: redis/redis-stack:latest
+    container_name: redis-image-search
     ports:
       - "6379:6379"
     volumes:
@@ -11,39 +24,110 @@ services:
 
   mysql:
     image: mysql:8.0
-    container_name: mysql
+    container_name: mysql-image-search
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: mydatabase
-      MYSQL_USER: myuser
-      MYSQL_PASSWORD: mypassword
+      <<: *defaults
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
 
-  fastapi:
-    build:
-      context: ./app
-      dockerfile: Dockerfile-base
-    container_name: fastapi
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./app:/app
+  rabbitmq:
+    image: rabbitmq:3.8.27-management-alpine
+    container_name: rabbitmq-image-search
     ports:
-      - "8000:8000"
+      - "5672:5672"  # RabbitMQ main port
+      - "15672:15672"  # RabbitMQ management plugin
+    environment:
+      <<: *defaults
+
+
+
+
+  fastapi1:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: fastapi1
+    environment:
+      <<: *defaults
+    command: poetry run uvicorn image_search.webapp.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+    ports:
+      - "8001:8000"
     depends_on:
       - mysql
       - redis
 
+  fastapi2:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: fastapi2
+    environment:
+      <<: *defaults
+    command: poetry run uvicorn image_search.webapp.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+    ports:
+      - "8002:8000"
+    depends_on:
+      - mysql
+      - redis
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - fastapi1
+      - fastapi2
+
+
   taskiq_worker:
     build:
-      context: ./app
-      dockerfile: Dockerfile-base
+      context: ./
+      dockerfile: Dockerfile
     container_name: taskiq_worker
-    command: python -m taskiq_worker
+    environment:
+      <<: *defaults
+    command: poetry run taskiq worker image_search.worker:broker
     volumes:
-      - ./app:/app
+      - ./:/app
+    depends_on:
+      - redis
+      - rabbitmq
+      - mysql
+
+  migrate:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: migrate
+    environment:
+      <<: *defaults
+    command: poetry run alembic upgrade head
+    restart: on-failure
+    volumes:
+      - ./:/app
+    depends_on:
+      - mysql
+
+  create_redis_indices:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    container_name: create_redisearch_indices
+    environment:
+      <<: *defaults
+    command: poetry run create_redisearch_indices
+    restart: on-failure
+    volumes:
+      - ./:/app
     depends_on:
       - redis
 

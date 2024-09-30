@@ -1,11 +1,16 @@
-FROM focal-test-base:latest
+FROM python:3.11-slim
 
-COPY . .
+RUN pip install poetry
 
-# Run Alembic migrations
-# RUN alembic upgrade head
+RUN apt-get update && apt-get install ffmpeg libsm6 libxext6 -y
 
-# Expose the port the FastAPI app runs on
+WORKDIR /app
+
+COPY pyproject.toml .
+COPY poetry.lock .
+COPY README.md .
+
+RUN poetry install --without dev
+
+
 EXPOSE 8000
-
-# The command to run the FastAPI app is defined in docker-compose.yml
